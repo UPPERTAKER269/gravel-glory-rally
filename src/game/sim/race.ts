@@ -141,12 +141,14 @@ function fixedStep(race: RaceState, playerInput: CarInput, dt: number) {
   const frozen = race.phase === "countdown";
   for (const car of race.cars) {
     let input: CarInput;
-    if (frozen) input = { ...NO_INPUT, brake: 1 };
+    if (frozen) input = NO_INPUT;
     else if (car.isPlayer && !car.finished) input = playerInput;
     else input = aiInput(car, race.track, race.cars, dt);
     if (car.finished) input = { ...input, throttle: input.throttle * 0.5 };
     const prevS = car.s;
+    const px = car.x, pz = car.z;
     stepVehicle(car, input, race.track, dt);
+    if (frozen) { car.x = px; car.z = pz; car.vx = 0; car.vz = 0; car.speed = 0; }
     if (!frozen) updateProgress(race, car, prevS);
   }
   collideCars(race.cars);

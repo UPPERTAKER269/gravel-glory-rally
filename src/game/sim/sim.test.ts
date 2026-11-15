@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TRACKS } from "./tracks";
+import { TRACKS, type TrackDef } from "./tracks";
+import { stepVehicle } from "./vehicle";
 import { buildTrack } from "./track";
 import { createRace, simulate, standings } from "./race";
 import { raceReward, careerUnlocked, CAREER } from "./progression";
@@ -28,17 +29,45 @@ describe("tracks", () => {
   }
 });
 
+// Long straights need evenly spaced points so the spline stays straight.
+const OVAL: [number, number, number][] = [
+  ...Array.from({ length: 9 }, (_, i) => [0, i * 150, 0] as [number, number, number]),
+  [150, 1320, 0],
+  ...Array.from({ length: 9 }, (_, i) => [300, 1200 - i * 150, 0] as [number, number, number]),
+  [150, -120, 0],
+];
+
 describe("driving", () => {
-  it("flat out on the starter car reaches 90% of top speed within 12 s", () => {
+  it("flat out on the starter car reaches 90% of top speed within 12 s on a long straight", () => {
+    const oval: TrackDef = { ...TRACKS[0], id: "test-oval", grip: 1, scale: 1,
+      points: OVAL };
+    const track = buildTrack(oval);
     const race = createRace({ trackId: "pinewood", laps: 1, opponents: 1, difficulty: "easy", playerCarId: "hatch" });
-    simulate(race, 3.6);
-    let peak = 0;
-    simulate(race, 12, (r) => {
-      peak = Math.max(peak, r.player.speed);
-      // Steer toward the road with a simple pursuit so we stay on the straight.
-      return { throttle: 1, brake: 0, steer: 0, handbrake: false };
-    });
-    expect(peak).toBeGreaterThan(carById("hatch").topSpeed * 0.9 * 0.85); // gravel drag
+    const car = race.player;
+    Object.assign(car, { x: 0, z: 300, yaw: 0, vx: 0, vz: 0 });
+    car.idx = track.nearest(0, 300, -1).i;
+    let t90 = Infinity;
+    const top = carById("hatch").topSpeed;
+    for (let i = 0; i < 12 * 120; i++) {
+      stepVehicle(car, { throttle: 1, brake: 0, steer: 0, handbrake: false }, track, 1 / 120);
+      if (car.speed >= top * 0.9 && t90 === Infinity) t90 = i / 120;
+    }
+    expect(t90).toBeLessThan(12);
+    expect(car.speed).toBeLessThanOrEqual(top);
+  });
+
+  it("braking from top speed stops the car within 120 m", () => {
+    const oval: TrackDef = { ...TRACKS[0], id: "test-oval2", grip: 1, scale: 1,
+      points: OVAL };
+    const track = buildTrack(oval);
+    const race = createRace({ trackId: "pinewood", laps: 1, opponents: 1, difficulty: "easy", playerCarId: "hatch" });
+    const car = race.player;
+    const top = carById("hatch").topSpeed;
+    Object.assign(car, { x: 0, z: 300, yaw: 0, vx: 0, vz: top });
+    car.idx = track.nearest(0, 300, -1).i;
+    for (let i = 0; i < 10 * 120 && car.speed > 0.1; i++)
+      stepVehicle(car, { throttle: 0, brake: 1, steer: 0, handbrake: false }, track, 1 / 120);
+    expect(car.z - 300).toBeLessThan(120);
   });
 
   it("the car does not move during the countdown", () => {
