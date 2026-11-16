@@ -53,7 +53,8 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
         dpr={quality === "high" ? [1, 1.75] : 1}
         gl={{ antialias: quality === "high", powerPreference: "high-performance" }}
         camera={{ fov: 62, near: 0.2, far: 1400, position: [0, 5, -10] }}
-        onCreated={({ gl }) => {
+        onCreated={({ gl, scene, camera }) => {
+          if (import.meta.env.DEV) (window as unknown as { __three?: unknown }).__three = { scene, camera, gl };
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = style.exposure;
         }}

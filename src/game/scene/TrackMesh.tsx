@@ -70,6 +70,8 @@ function terrain(track: Track, quality: "high" | "low") {
   const verge = new THREE.Color(style.verge);
   const c = new THREE.Color();
   const baseY = track.samples.reduce((a, s) => a + s.y, 0) / track.samples.length;
+  let minY = Infinity;
+  for (let k = 0; k < heights.length; k++) minY = Math.min(minY, heights[k]);
   for (let j = 0; j <= nz; j++)
     for (let i = 0; i <= nx; i++) {
       const k = j * (nx + 1) + i;
@@ -104,7 +106,8 @@ function terrain(track: Track, quality: "high" | "low") {
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   g.setIndex(idx);
   g.computeVertexNormals();
-  return { geometry: g, extent: { x0, x1, z0, z1 }, edgeY: baseY };
+  // The far ground sits below the lowest terrain point so it never covers the road.
+  return { geometry: g, extent: { x0, x1, z0, z1 }, edgeY: minY - 1 };
 }
 
 export function TrackMesh({ track, quality }: { track: Track; quality: "high" | "low" }) {
@@ -143,7 +146,7 @@ export function TrackMesh({ track, quality }: { track: Track; quality: "high" | 
         <meshStandardMaterial vertexColors map={data.detail} roughness={1} metalness={0} />
       </mesh>
       {/* Far ground beyond the terrain grid, hidden by fog. */}
-      <mesh rotation-x={-Math.PI / 2} position={[(x0 + x1) / 2, data.terrain.edgeY - 2, (z0 + z1) / 2]}>
+      <mesh rotation-x={-Math.PI / 2} position={[(x0 + x1) / 2, data.terrain.edgeY, (z0 + z1) / 2]}>
         <planeGeometry args={[(x1 - x0) * 4, (z1 - z0) * 4]} />
         <meshStandardMaterial color={style.terrainHigh} roughness={1} />
       </mesh>
