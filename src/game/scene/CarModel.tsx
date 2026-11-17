@@ -4,6 +4,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { CarSpec } from "../sim/cars";
+import { upgradeCarMaterials } from "./carPaint";
 import { CAR_MODEL_URL, CAR_SCALE } from "./models";
 
 export interface CarNodes {
@@ -17,7 +18,11 @@ export const carNodes = new Map<number, CarNodes>();
 
 export function CarModel({ carId, model, shadows }: { carId: number; model: CarSpec["model"]; shadows: boolean }) {
   const { scene } = useGLTF(CAR_MODEL_URL[model]);
-  const cloned = useMemo(() => skeletonClone(scene), [scene]);
+  const cloned = useMemo(() => {
+    const c = skeletonClone(scene);
+    upgradeCarMaterials(c);
+    return c;
+  }, [scene]);
   const root = useRef<THREE.Group>(null);
 
   useLayoutEffect(() => {

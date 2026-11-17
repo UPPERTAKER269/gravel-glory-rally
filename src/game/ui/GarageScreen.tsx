@@ -4,6 +4,8 @@ import { Canvas } from "@react-three/fiber";
 import { Check, Lock } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { upgradeCarMaterials } from "../scene/carPaint";
+import { Effects } from "../scene/Effects";
 import { CAR_MODEL_URL } from "../scene/models";
 import { CARS, carById, carStats, type CarSpec } from "../sim/cars";
 import { useGame } from "../store";
@@ -11,7 +13,11 @@ import { CoinBadge, RallyButton, ScreenShell, StatBar } from "./common";
 
 function TurntableCar({ model }: { model: CarSpec["model"] }) {
   const { scene } = useGLTF(CAR_MODEL_URL[model]);
-  const obj = useMemo(() => scene.clone(true), [scene]);
+  const obj = useMemo(() => {
+    const c = scene.clone(true);
+    upgradeCarMaterials(c);
+    return c;
+  }, [scene]);
   return <primitive object={obj} scale={1.5} />;
 }
 
@@ -31,6 +37,7 @@ function Turntable({ model }: { model: CarSpec["model"] }) {
         </group>
       </Suspense>
       <ContactShadows position={[0, -0.6, 0]} opacity={0.7} scale={10} blur={2.4} far={3} />
+      <Effects saturation={0.08} />
       <OrbitControls target={[0, 0.2, 0]} autoRotate autoRotateSpeed={1.4} enablePan={false} enableZoom={false} minPolarAngle={0.9} maxPolarAngle={1.45} />
     </Canvas>
   );

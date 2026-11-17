@@ -140,7 +140,8 @@ export function Stepper({ dust, sun, wrapper }: { dust: DustSystem; sun: THREE.D
 
     // Finish -> results, once.
     if (race.phase === "finished" && !reported.current) {
-      finishTimer.current += delta;
+      // Real time (lightly capped) so slow devices still reach the results screen.
+      finishTimer.current += Math.min(rawDelta, 0.25);
       if (finishTimer.current > 2.5) {
         reported.current = true;
         reportResult(race);

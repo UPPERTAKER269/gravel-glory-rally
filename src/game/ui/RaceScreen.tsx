@@ -206,6 +206,7 @@ function Speedo({ speed, max, unit, reverse }: { speed: number; max: number; uni
   };
   return (
     <div className="relative h-28 w-36 sm:h-32 sm:w-40">
+      <div className="absolute left-1/2 top-[8%] aspect-square h-[84%] -translate-x-1/2 rounded-full bg-scrim backdrop-blur-sm" />
       <svg viewBox="0 0 120 105" className="absolute inset-0 h-full w-full drop-shadow-lg">
         <path d={arc(1)} fill="none" className="stroke-scrim-strong" strokeWidth={10} />
         {frac > 0.005 && <path d={arc(frac)} fill="none" className={frac > 0.85 ? "stroke-accent" : "stroke-primary"} strokeWidth={10} />}

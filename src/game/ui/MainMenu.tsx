@@ -27,9 +27,10 @@ export function MainMenu() {
       <div className="max-w-xl">
         <div className="animate-rally-in font-display text-sm font-bold uppercase tracking-[0.4em] text-primary">Gravel · Sand · Snow</div>
         <h1 className="animate-rally-in mt-2 text-7xl font-black uppercase italic leading-[0.85] tracking-tight sm:text-8xl lg:text-9xl">
-          Dust
+          Vuka
+          <span className="text-primary">:</span>
           <br />
-          <span className="text-primary">Rally</span>
+          <span className="text-5xl text-primary sm:text-6xl lg:text-7xl">Car Racing</span>
         </h1>
 
         <nav className="mt-8 flex flex-col gap-2 sm:mt-10">

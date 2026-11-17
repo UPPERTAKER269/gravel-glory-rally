@@ -127,14 +127,14 @@ export function TrackMesh({ track, quality }: { track: Track; quality: "high" | 
 
   const start = track.samples[0];
   const yaw = Math.atan2(start.tx, start.tz);
-  const arch = useMemo(() => ({ banner: bannerTexture("DUST RALLY  ·  START"), checker: checkerTexture() }), []);
+  const arch = useMemo(() => ({ banner: bannerTexture("VUKA  ·  START"), checker: checkerTexture() }), []);
   const span = track.def.width + 3;
   const { x0, x1, z0, z1 } = data.terrain.extent;
 
   return (
     <group>
       <mesh geometry={data.road} receiveShadow>
-        <meshStandardMaterial map={data.roadTex} roughness={0.95} metalness={0} />
+        <meshStandardMaterial map={data.roadTex} roughness={style.roadRoughness} metalness={0} envMapIntensity={style.roadRoughness < 0.8 ? 1.15 : 1} />
       </mesh>
       <mesh geometry={data.vergeL} receiveShadow>
         <meshStandardMaterial map={data.vergeTex} roughness={1} color="#cfcfcf" />

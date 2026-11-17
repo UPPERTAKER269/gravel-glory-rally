@@ -7,6 +7,8 @@ import { runtime } from "../runtime";
 import type { RaceState } from "../sim/race";
 import { CarModel } from "./CarModel";
 import { DustSystem } from "./dust";
+import { Effects } from "./Effects";
+import { Grass } from "./Grass";
 import { ENV_STYLE } from "./envStyle";
 import { CONE_URL } from "./models";
 import { Scenery } from "./Scenery";
@@ -49,9 +51,9 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
   return (
     <div ref={setWrapper} className="absolute inset-0" id="race-wrapper">
       <Canvas
-        shadows={shadows}
+        shadows={shadows ? { type: THREE.PCFShadowMap } : false}
         dpr={quality === "high" ? [1, 1.75] : 1}
-        gl={{ antialias: quality === "high", powerPreference: "high-performance" }}
+        gl={{ antialias: quality === "low", powerPreference: "high-performance", stencil: false }}
         camera={{ fov: 62, near: 0.2, far: 1400, position: [0, 5, -10] }}
         onCreated={({ gl, scene, camera }) => {
           if (import.meta.env.DEV) (window as unknown as { __three?: unknown }).__three = { scene, camera, gl };
@@ -65,7 +67,7 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
         <directionalLight
           ref={(l) => {
             if (l && l !== sun) {
-              l.userData.offset = sunOffset;
+              l.userData["offset"] = sunOffset;
               setSun(l);
             }
           }}
@@ -89,6 +91,7 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
         </Environment>
 
         <TrackMesh track={race.track} quality={quality} />
+        <Grass track={race.track} quality={quality} />
         <primitive object={dust.points} />
 
         <Suspense fallback={null}>
@@ -102,6 +105,7 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
             <CarModel carId={c.id} model={c.spec.model} shadows={shadows} />
           </Suspense>
         ))}
+        {quality === "high" && <Effects bloomThreshold={race.track.def.environment === "snow" ? 1.5 : 0.95} />}
         <Stepper dust={dust} sun={sun} wrapper={wrapper} />
       </Canvas>
     </div>

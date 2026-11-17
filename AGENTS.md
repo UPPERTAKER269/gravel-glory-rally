@@ -28,3 +28,12 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Game architecture
+- Rules (track, vehicle, AI, race, progression) live in `src/game/sim/` as plain TS with no React/three imports, so they stay unit-testable.
+- Per-frame state lives in `src/game/runtime.ts`; zustand (`src/game/store.ts`) holds only UI state and the saved profile, because per-frame React updates would re-render 60x/s.
+- One `useFrame` in `src/game/scene/Stepper.tsx` advances input, sim, poses, dust and camera in that order.
+- Dev hooks: `window.__game` (`race`, `sim(seconds, autopilot)`, `standings()`) and `window.__three` (`scene`, `camera`, `gl`) exist only in dev for browser checks.
+- Post-processing and shadows run only on the "high" quality setting, to keep low-end phones playable.
+- tsconfig has `noUncheckedIndexedAccess`, `noPropertyAccessFromIndexSignature` and `exactOptionalPropertyTypes` off: game math indexes typed arrays everywhere and the checks added noise, not safety.
+- The save key stays `dust-rally-save-v1` after the rename so existing progress survives.
