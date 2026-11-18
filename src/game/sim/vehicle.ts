@@ -19,6 +19,13 @@ export const SLIDE_DRAG = 0.35; // sliding sideways bleeds forward speed
 export const REVERSE_TOP = 10;
 export const REVERSE_ACCEL = 6;
 export const CAR_RADIUS = 1.5;
+// Gearbox: each gear tops out at this share of the car's top speed.
+export const GEAR_TOP = [0.3, 0.47, 0.62, 0.76, 0.89, 1.04];
+export const IDLE_RPM = 900;
+export const REDLINE_RPM = 7400;
+export const SHIFT_TIME = 0.14; // s of reduced drive while the clutch is out
+export const SHIFT_DRIVE = 0.35; // share of drive kept during a shift
+export const WEIGHT_TRANSFER = 0.012; // turn-in gained per m/s^2 of braking
 
 export interface CarInput {
   throttle: number; // 0..1
@@ -75,6 +82,42 @@ export interface CarState {
   aiSkill: number;
   stuckTime: number;
   reverseTime: number;
+  // Drivetrain (sound + HUD)
+  gear: number; // 1..6, -1 reverse
+  rpm: number;
+  shiftTimer: number;
+  // Online: driven by network packets, not simulated here.
+  remote?: boolean;
+  netId?: string;
+}
+
+/** Pick gear and rpm from speed; returns the drive multiplier for this step. */
+export function stepGearbox(car: CarState, vLong: number, throttle: number, dt: number): number {
+  const top = car.spec.topSpeed;
+  if (vLong < -0.5) {
+    car.gear = -1;
+    car.rpm = IDLE_RPM + (Math.abs(vLong) / REVERSE_TOP) * (REDLINE_RPM - IDLE_RPM) * 0.6;
+    return 1;
+  }
+  if (car.gear < 1) car.gear = 1;
+  const v = Math.max(0, vLong);
+  const g = car.gear - 1;
+  if (g < GEAR_TOP.length - 1 && v > GEAR_TOP[g] * top * 0.96) {
+    car.gear += 1;
+    car.shiftTimer = SHIFT_TIME;
+  } else if (g > 0 && v < GEAR_TOP[g - 1] * top * 0.72) {
+    car.gear -= 1;
+  }
+  const lo = car.gear > 1 ? GEAR_TOP[car.gear - 2] * top * 0.55 : 0;
+  const hi = GEAR_TOP[car.gear - 1] * top;
+  const f = Math.min(1.05, Math.max(0, (v - lo) / Math.max(1, hi - lo)));
+  const target = IDLE_RPM + f * (REDLINE_RPM - IDLE_RPM) * (0.55 + 0.45 * Math.max(throttle, v > 1 ? 0.2 : 0)) + (v < 1 ? throttle * 2600 : 0);
+  car.rpm += (target - car.rpm) * damp(car.shiftTimer > 0 ? 18 : 10, dt);
+  if (car.shiftTimer > 0) {
+    car.shiftTimer -= dt;
+    return SHIFT_DRIVE;
+  }
+  return 1;
 }
 
 const near: number[] = [];
@@ -103,8 +146,9 @@ export function stepVehicle(car: CarState, input: CarInput, track: Track, dt: nu
 
   // Engine and brakes.
   const ratio = vLong / spec.topSpeed;
+  const drive = stepGearbox(car, vLong, input.throttle, dt);
   if (input.throttle > 0 && vLong > -1) {
-    vLong += spec.accel * input.throttle * Math.max(0, 1 - Math.max(0, ratio) ** 2) * dt;
+    vLong += spec.accel * drive * input.throttle * Math.max(0, 1 - Math.max(0, ratio) ** 2) * dt;
   }
   if (input.brake > 0) {
     if (vLong > 0.5) vLong = Math.max(0, vLong - spec.brake * input.brake * dt);
@@ -120,7 +164,9 @@ export function stepVehicle(car: CarState, input: CarInput, track: Track, dt: nu
   // Steering: bicycle model with speed-sensitive lock.
   const speedAbs = Math.abs(vLong);
   car.steerAngle = (car.steer * MAX_STEER) / (1 + speedAbs * STEER_FALLOFF);
-  let yawRate = -((vLong * Math.tan(car.steerAngle)) / WHEELBASE) * spec.turn;
+  // Weight transfer: braking loads the front tyres (sharper turn-in), hard throttle unloads them.
+  const transfer = 1 + clamp(-car.lastAccel * WEIGHT_TRANSFER, -0.1, 0.18);
+  let yawRate = -((vLong * Math.tan(car.steerAngle)) / WHEELBASE) * spec.turn * transfer;
   if (input.handbrake && speedAbs > 6) yawRate -= car.steer * HANDBRAKE_YAW;
   // Sliding (big slip) adds a little rotation, lets drifts hold.
   yawRate -= Math.sign(vLong) * clamp(vLat * 0.02, -0.4, 0.4) * (input.throttle * 0.5);
@@ -238,8 +284,10 @@ export function collideCars(cars: CarState[]) {
       const d = Math.sqrt(d2);
       const nx = dx / d;
       const nz = dz / d;
-      const ma = a.spec.mass;
-      const mb = b.spec.mass;
+      if (a.remote && b.remote) continue;
+      // A remote car is positioned by its owner: treat it as immovable here.
+      const ma = a.remote ? 1e6 : a.spec.mass;
+      const mb = b.remote ? 1e6 : b.spec.mass;
       const overlap = min - d;
       a.x -= nx * overlap * (mb / (ma + mb));
       a.z -= nz * overlap * (mb / (ma + mb));

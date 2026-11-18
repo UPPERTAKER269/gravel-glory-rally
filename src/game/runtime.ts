@@ -2,6 +2,7 @@
 // Never stored in React state: it changes 60+ times a second.
 import type { RaceState } from "./sim/race";
 import type { CameraMode } from "./store";
+import type { EngineAudio } from "./audio/engineAudio";
 
 export interface TouchState {
   left: boolean;
@@ -17,4 +18,7 @@ export const runtime = {
   touch: { left: false, right: false, gas: false, brake: false, handbrake: false } as TouchState,
   camera: "chase" as CameraMode,
   gamepadIndex: -1,
+  /** Touch steering eases in/out instead of snapping to full lock (-1..1). */
+  touchSteer: 0,
+  audio: null as EngineAudio | null,
 };

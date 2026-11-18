@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useRef } from "react";
 import * as THREE from "three";
 import { gamepadInput, keyboardInput, mergeInputs, touchInput } from "../input";
+import { allConnectedFinished, netStep } from "../net/session";
 import { runtime } from "../runtime";
 import { damp } from "../sim/math";
 import { raceResults, stepRace, type RaceState } from "../sim/race";
@@ -11,6 +12,11 @@ import { trackById } from "../sim/tracks";
 import { useGame } from "../store";
 import { carNodes } from "./CarModel";
 import type { DustSystem } from "./dust";
+import type { SkidMarks } from "./skidMarks";
+
+const TOUCH_STEER_IN = 3.2; // full lock in ~0.3 s while held
+const TOUCH_STEER_OUT = 6; // re-centres faster on release
+const ONLINE_RESULTS_WAIT = 25; // s to wait for friends after you finish
 
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
@@ -44,27 +50,43 @@ function poseCars(race: RaceState) {
   }
 }
 
-export function Stepper({ dust, sun, wrapper }: { dust: DustSystem; sun: THREE.DirectionalLight | null; wrapper: HTMLElement | null }) {
+export function Stepper({ dust, skid, sun, wrapper }: { dust: DustSystem; skid: SkidMarks; sun: THREE.DirectionalLight | null; wrapper: HTMLElement | null }) {
   const { camera, size } = useThree();
   const camYaw = useRef<number | null>(null);
   const finishTimer = useRef(0);
   const reported = useRef(false);
   const ready = useRef(false);
 
-  useFrame((_, rawDelta) => {
+  useFrame(({ clock }, rawDelta) => {
     const race = runtime.race;
     if (!race) return;
     const delta = Math.min(rawDelta, 0.05);
     const paused = useGame.getState().paused;
+    // Online races can't pause: everyone else keeps driving.
+    const running = !paused || !!race.config.online;
 
-    if (!paused) {
-      const input = mergeInputs(keyboardInput(runtime.keys), touchInput(runtime.touch), gamepadInput(readPad()));
+    // Touch steering ramps toward the held direction.
+    const t = runtime.touch;
+    const want = (t.right ? 1 : 0) - (t.left ? 1 : 0);
+    const rate = want === 0 || Math.sign(want) !== Math.sign(runtime.touchSteer) ? TOUCH_STEER_OUT : TOUCH_STEER_IN;
+    runtime.touchSteer += Math.max(-rate * delta, Math.min(rate * delta, want - runtime.touchSteer));
+
+    let input = { throttle: 0, brake: 0, steer: 0, handbrake: false };
+    if (running) {
+      const touch = { ...touchInput(t), steer: runtime.touchSteer };
+      input = mergeInputs(keyboardInput(runtime.keys), touch, gamepadInput(readPad()));
       stepRace(race, input, delta);
     }
+    netStep(race, delta, clock.elapsedTime);
     poseCars(race);
+    if (running) skid.update(race.cars, input.brake > 0.5 || input.handbrake);
+    runtime.audio?.update({
+      rpm: race.player.rpm, throttle: input.throttle, speed: race.player.speed, slip: race.player.slip,
+      onRoad: race.player.onRoad, impact: race.player.impact, paused: !running,
+    });
 
     // Dust from the rear wheels.
-    if (!paused) {
+    if (running) {
       for (const car of race.cars) {
         const sp = Math.hypot(car.vx, car.vz);
         if (sp < 5) continue;
@@ -107,18 +129,29 @@ export function Stepper({ dust, sun, wrapper }: { dust: DustSystem; sun: THREE.D
       if (camYaw.current === null) camYaw.current = target;
       let dy = target - camYaw.current;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-      camYaw.current += dy * damp(4.5, delta);
+      camYaw.current += dy * damp(3.6, delta);
       const cx = Math.sin(camYaw.current), cz = Math.cos(camYaw.current);
-      const dist = 7.2 + Math.min(1.5, sp * 0.03);
-      camPos.set(p.x - cx * dist, p.y + 2.9, p.z - cz * dist);
-      const ground = race.track.heightAt(camPos.x, camPos.z, p.idx) + 1.2;
+      // Camera pulls back under acceleration and closes in under braking.
+      const dist = 6.6 + Math.min(1.8, sp * 0.032) + clampN(p.lastAccel * 0.05, -0.5, 0.6);
+      const height = 2.45 + Math.min(0.5, sp * 0.008);
+      camPos.set(p.x - cx * dist, p.y + height, p.z - cz * dist);
+      const ground = race.track.heightAt(camPos.x, camPos.z, p.idx) + 1.1;
       if (camPos.y < ground) camPos.y = ground;
       const first = cam.userData.init !== true;
-      cam.position.lerp(camPos, first ? 1 : damp(9, delta));
-      camLook.set(p.x + fx * 4, p.y + 1.2, p.z + fz * 4);
+      // Horizontal follow is tight, vertical is softer so bumps read as suspension, not camera judder.
+      const kH = first ? 1 : damp(8, delta);
+      const kV = first ? 1 : damp(4, delta);
+      cam.position.x += (camPos.x - cam.position.x) * kH;
+      cam.position.z += (camPos.z - cam.position.z) * kH;
+      cam.position.y += (camPos.y - cam.position.y) * kV;
+      camLook.set(p.x + fx * 5, p.y + 1.0, p.z + fz * 5);
       cam.lookAt(camLook);
+      // Slight lean into corners.
+      cam.rotateZ(clampN(-p.roll * 0.6, -0.04, 0.04));
       cam.userData.init = true;
-      // Collision shake.
+      // Road texture rumble + collision shake.
+      const rumble = (p.onRoad ? 0.004 : 0.012) * Math.min(1, sp / 30);
+      cam.position.y += (Math.random() - 0.5) * rumble;
       if (p.impact > 2) cam.position.y += (Math.random() - 0.5) * Math.min(0.4, p.impact * 0.03);
     }
     const fov = 62 + Math.min(14, Math.max(0, p.speed) * 0.28);
@@ -142,7 +175,11 @@ export function Stepper({ dust, sun, wrapper }: { dust: DustSystem; sun: THREE.D
     if (race.phase === "finished" && !reported.current) {
       // Real time (lightly capped) so slow devices still reach the results screen.
       finishTimer.current += Math.min(rawDelta, 0.25);
-      if (finishTimer.current > 2.5) {
+      const online = !!race.config.online;
+      const done = online
+        ? finishTimer.current > 2.5 && (allConnectedFinished(race) || finishTimer.current > ONLINE_RESULTS_WAIT)
+        : finishTimer.current > 2.5;
+      if (done) {
         reported.current = true;
         reportResult(race);
       }
@@ -151,11 +188,15 @@ export function Stepper({ dust, sun, wrapper }: { dust: DustSystem; sun: THREE.D
   return null;
 }
 
+function clampN(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 function reportResult(race: RaceState) {
   const rows = raceResults(race);
   const me = rows.find((r) => r.isPlayer)!;
   const def = trackById(race.config.trackId);
-  const career = !!race.config.careerEventId;
+  const career = !!race.config.careerEventId && !race.config.online;
   const coins = raceReward(me.position, def.rewardMult, race.config.laps, career);
   const store = useGame.getState();
   let bonus = 0;

@@ -2,8 +2,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Difficulty, RaceConfig, RaceResultRow } from "./sim/race";
+import { carById } from "./sim/cars";
+import { MAX_UPGRADE_LEVEL, levelsOf, upgradeCost, type UpgradeKind, type UpgradeLevels } from "./sim/upgrades";
 
-export type Screen = "menu" | "play" | "garage" | "career" | "settings" | "race" | "results";
+export type Screen = "menu" | "play" | "garage" | "career" | "settings" | "race" | "results" | "online";
 export type CameraMode = "chase" | "cockpit";
 
 export interface Settings {
@@ -12,6 +14,8 @@ export interface Settings {
   units: "kmh" | "mph";
   touch: "auto" | "on" | "off";
   difficulty: Difficulty;
+  sound: boolean;
+  playerName: string;
 }
 
 export interface Profile {
@@ -22,6 +26,7 @@ export interface Profile {
   careerBest: Record<string, number>;
   racesRun: number;
   wins: number;
+  upgrades: Record<string, UpgradeLevels>;
 }
 
 export interface LastResult {
@@ -40,6 +45,7 @@ const DEFAULT_PROFILE: Profile = {
   careerBest: {},
   racesRun: 0,
   wins: 0,
+  upgrades: {},
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -48,6 +54,8 @@ const DEFAULT_SETTINGS: Settings = {
   units: "kmh",
   touch: "auto",
   difficulty: "normal",
+  sound: true,
+  playerName: "",
 };
 
 interface PersistedState {
@@ -70,6 +78,7 @@ interface GameStore extends PersistedState {
   buyCar: (id: string, price: number) => boolean;
   selectCar: (id: string) => void;
   buyTrack: (id: string, price: number) => boolean;
+  buyUpgrade: (carId: string, kind: UpgradeKind) => boolean;
   resetProgress: () => void;
 }
 
@@ -84,7 +93,12 @@ export const useGame = create<GameStore>()(
       paused: false,
       lastResult: null,
       setScreen: (screen) => set({ screen, paused: false }),
-      startRace: (raceConfig) => set((s) => ({ raceConfig, screen: "race", paused: false, raceKey: s.raceKey + 1 })),
+      startRace: (config) =>
+        set((s) => {
+          // Your bought upgrades always ride along with the car you drive.
+          const raceConfig = { ...config, playerUpgrades: config.playerUpgrades ?? levelsOf(s.profile.upgrades?.[config.playerCarId]) };
+          return { raceConfig, screen: "race", paused: false, raceKey: s.raceKey + 1 };
+        }),
       restartRace: () => set((s) => ({ screen: "race", paused: false, raceKey: s.raceKey + 1 })),
       setPaused: (paused) => set({ paused }),
       finishRace: (r) =>
@@ -118,11 +132,30 @@ export const useGame = create<GameStore>()(
         set({ profile: { ...p, coins: p.coins - price, unlockedTracks: [...p.unlockedTracks, id] } });
         return true;
       },
+      buyUpgrade: (carId, kind) => {
+        const p = get().profile;
+        if (!p.ownedCars.includes(carId)) return false;
+        const cur = levelsOf(p.upgrades?.[carId]);
+        if (cur[kind] >= MAX_UPGRADE_LEVEL) return false;
+        const price = upgradeCost(carById(carId), cur[kind] + 1);
+        if (p.coins < price) return false;
+        set({ profile: { ...p, coins: p.coins - price, upgrades: { ...p.upgrades, [carId]: { ...cur, [kind]: cur[kind] + 1 } } } });
+        return true;
+      },
       resetProgress: () => set({ profile: DEFAULT_PROFILE }),
     }),
     {
       name: "dust-rally-save-v1",
       partialize: (s): PersistedState => ({ profile: s.profile, settings: s.settings }),
+      // Older saves lack newer fields (upgrades, sound, name): fill them from defaults.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<PersistedState>;
+        return {
+          ...current,
+          profile: { ...DEFAULT_PROFILE, ...(p.profile ?? {}) },
+          settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) },
+        };
+      },
     },
   ),
 );

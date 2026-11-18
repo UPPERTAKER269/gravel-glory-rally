@@ -3,6 +3,7 @@ import { aiInput } from "./ai";
 import { CARS, carById, type CarSpec } from "./cars";
 import { buildTrack, type Track } from "./track";
 import { trackById } from "./tracks";
+import { upgradedSpec, type UpgradeLevels } from "./upgrades";
 import { NO_INPUT, collideCars, stepVehicle, type CarInput, type CarState } from "./vehicle";
 
 export const COUNTDOWN = 3.5; // seconds before the green light
@@ -18,7 +19,24 @@ export interface RaceConfig {
   opponents: number;
   difficulty: Difficulty;
   playerCarId: string;
+  playerUpgrades?: Partial<UpgradeLevels>;
   careerEventId?: string;
+  online?: OnlineRaceInfo;
+}
+
+export interface OnlineGridEntry {
+  id: string;
+  name: string;
+  carId: string;
+  upgrades?: Partial<UpgradeLevels>;
+}
+
+export interface OnlineRaceInfo {
+  roomCode: string;
+  raceId: string;
+  selfId: string;
+  /** Everyone in the race, in grid order (pole first). */
+  grid: OnlineGridEntry[];
 }
 
 export type RacePhase = "countdown" | "racing" | "finished";
@@ -66,11 +84,13 @@ function makeCar(id: number, name: string, spec: CarSpec, isPlayer: boolean, tra
     finishTime: 0, lapStart: 0, bestLap: 0,
     aiLane: ((id * 1.37) % 3) - 1.5, aiSkill: skill * (0.96 + ((id * 0.031) % 0.06)),
     stuckTime: 0, reverseTime: 0,
+    gear: 1, rpm: 900, shiftTimer: 0,
   };
 }
 
 export function createRace(config: RaceConfig): RaceState {
   const track = getTrack(config.trackId);
+  if (config.online) return createOnlineRace(config, config.online, track);
   const skill = DIFFICULTY_SKILL[config.difficulty];
   const n = Math.max(1, Math.min(5, config.opponents));
   const cars: CarState[] = [];
@@ -82,8 +102,25 @@ export function createRace(config: RaceConfig): RaceState {
     cars.push(makeCar(i + 1, AI_NAMES[i % AI_NAMES.length], spec, false, track, i, skill));
   }
   // Player starts at the back of the grid.
-  const player = makeCar(0, "You", playerSpec, true, track, n, 1);
+  const player = makeCar(0, "You", upgradedSpec(playerSpec, config.playerUpgrades), true, track, n, 1);
   cars.push(player);
+  return { config, track, cars, player, time: 0, countdown: COUNTDOWN, phase: "countdown", finishOrder: [], accumulator: 0 };
+}
+
+/** Online: one car per grid entry, no AI. Remote cars are moved by network packets. */
+function createOnlineRace(config: RaceConfig, online: OnlineRaceInfo, track: Track): RaceState {
+  const cars: CarState[] = [];
+  let player: CarState | null = null;
+  online.grid.forEach((g, slot) => {
+    const isSelf = g.id === online.selfId;
+    const spec = upgradedSpec(carById(g.carId), g.upgrades);
+    const car = makeCar(slot, isSelf ? "You" : g.name, spec, isSelf, track, slot, 1);
+    car.netId = g.id;
+    if (isSelf) player = car;
+    else car.remote = true;
+    cars.push(car);
+  });
+  if (!player) throw new Error("Local player missing from online grid");
   return { config, track, cars, player, time: 0, countdown: COUNTDOWN, phase: "countdown", finishOrder: [], accumulator: 0 };
 }
 
@@ -140,6 +177,7 @@ function fixedStep(race: RaceState, playerInput: CarInput, dt: number) {
   }
   const frozen = race.phase === "countdown";
   for (const car of race.cars) {
+    if (car.remote) continue;
     let input: CarInput;
     if (frozen) input = NO_INPUT;
     else if (car.isPlayer && !car.finished) input = playerInput;
