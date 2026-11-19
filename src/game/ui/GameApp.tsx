@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import heroImg from "@/assets/menu-hero.jpg";
 import { useGame } from "../store";
 import { MainMenu } from "./MainMenu";
@@ -6,6 +6,11 @@ import { PlayScreen } from "./PlayScreen";
 import { CareerScreen } from "./CareerScreen";
 import { SettingsScreen } from "./SettingsScreen";
 import { ResultsScreen } from "./ResultsScreen";
+import { OnlineScreen } from "./OnlineScreen";
+import { leaveRoom, useOnline } from "../net/session";
+import { cleanRoomCode } from "../net/protocol";
+import { useGamepadMenuNav } from "./gamepadNav";
+import { RotatePrompt, useLandscapeOnTap } from "./mobileLandscape";
 
 const Garage = lazy(() => import("./GarageScreen"));
 const RaceScreen = lazy(() => import("./RaceScreen"));
@@ -17,6 +22,7 @@ function Loading({ label }: { label: string }) {
         <div className="stripes mx-auto mb-4 h-2 w-40 animate-pulse" />
         <div className="font-display text-xl font-bold uppercase tracking-[0.3em] text-muted-foreground">{label}</div>
       </div>
+      <RotatePrompt />
     </div>
   );
 }
@@ -24,6 +30,24 @@ function Loading({ label }: { label: string }) {
 export function GameApp() {
   const screen = useGame((s) => s.screen);
   const raceKey = useGame((s) => s.raceKey);
+  const online = useGame((s) => !!s.raceConfig?.online);
+  useGamepadMenuNav();
+  useLandscapeOnTap();
+
+  // A shared invite link (?room=CODE) opens the online screen with the code filled in.
+  useEffect(() => {
+    const code = cleanRoomCode(new URL(window.location.href).searchParams.get("room") ?? "");
+    if (code.length >= 4) {
+      useOnline.setState({ pendingCode: code });
+      useGame.getState().setScreen("online");
+    }
+  }, []);
+
+  // Leaving the online area (lobby, online race, its results) closes the room.
+  useEffect(() => {
+    const inOnline = screen === "online" || ((screen === "race" || screen === "results") && online);
+    if (!inOnline && useOnline.getState().status !== "idle") leaveRoom();
+  }, [screen, online]);
 
   if (screen === "race") {
     return (
@@ -31,6 +55,7 @@ export function GameApp() {
         <Suspense fallback={<Loading label="Loading stage" />}>
           <RaceScreen key={raceKey} />
         </Suspense>
+        <RotatePrompt />
       </div>
     );
   }
@@ -47,6 +72,7 @@ export function GameApp() {
         {screen === "career" && <CareerScreen />}
         {screen === "settings" && <SettingsScreen />}
         {screen === "results" && <ResultsScreen />}
+        {screen === "online" && <OnlineScreen />}
         {screen === "garage" && (
           <Suspense fallback={<Loading label="Opening garage" />}>
             <Garage />

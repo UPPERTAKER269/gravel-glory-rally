@@ -12,6 +12,9 @@ import { Grass } from "./Grass";
 import { ENV_STYLE } from "./envStyle";
 import { CONE_URL } from "./models";
 import { Scenery } from "./Scenery";
+import { SkidMarks } from "./skidMarks";
+
+const SKID_COLOR = { forest: "#241a12", canyon: "#4a2616", snow: "#6f7c88" } as const;
 import { Stepper } from "./Stepper";
 import { TrackMesh } from "./TrackMesh";
 
@@ -38,13 +41,19 @@ function Cones({ race }: { race: RaceState }) {
   );
 }
 
-export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high" | "low" }) {
+// Phones/tablets: same look minus the post stack, lower resolution and lighter shadows,
+// so mobile GPUs don't run out of memory and drop the canvas.
+const IS_TOUCH = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches));
+
+export function RaceCanvas({ race, quality, onContextLost }: { race: RaceState; quality: "high" | "low"; onContextLost?: () => void }) {
   const style = ENV_STYLE[race.track.def.environment];
   const dust = useMemo(() => new DustSystem(style.dust), [style.dust]);
   const [sun, setSun] = useState<THREE.DirectionalLight | null>(null);
   const [wrapper, setWrapper] = useState<HTMLDivElement | null>(null);
   const shadows = quality === "high";
+  const skid = useMemo(() => new SkidMarks(SKID_COLOR[race.track.def.environment]), [race.track.def.environment]);
   useEffect(() => () => dust.dispose(), [dust]);
+  useEffect(() => () => skid.dispose(), [skid]);
 
   const sunOffset = useMemo(() => new THREE.Vector3(...style.sun).normalize().multiplyScalar(80), [style.sun]);
 
@@ -52,10 +61,14 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
     <div ref={setWrapper} className="absolute inset-0" id="race-wrapper">
       <Canvas
         shadows={shadows ? { type: THREE.PCFShadowMap } : false}
-        dpr={quality === "high" ? [1, 1.75] : 1}
+        dpr={quality === "high" ? (IS_TOUCH ? [1, 1.35] : [1, 1.75]) : 1}
         gl={{ antialias: quality === "low", powerPreference: "high-performance", stencil: false }}
         camera={{ fov: 62, near: 0.2, far: 1400, position: [0, 5, -10] }}
         onCreated={({ gl, scene, camera }) => {
+          gl.domElement.addEventListener("webglcontextlost", (e) => {
+            e.preventDefault();
+            onContextLost?.();
+          });
           if (import.meta.env.DEV) (window as unknown as { __three?: unknown }).__three = { scene, camera, gl };
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = style.exposure;
@@ -74,7 +87,7 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
           color={style.sunColor}
           intensity={style.sunIntensity}
           castShadow={shadows}
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={IS_TOUCH ? [1024, 1024] : [2048, 2048]}
           shadow-camera-left={-55}
           shadow-camera-right={55}
           shadow-camera-top={55}
@@ -93,6 +106,7 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
         <TrackMesh track={race.track} quality={quality} />
         <Grass track={race.track} quality={quality} />
         <primitive object={dust.points} />
+        <primitive object={skid.mesh} />
 
         <Suspense fallback={null}>
           <Scenery track={race.track} shadows={shadows} />
@@ -105,8 +119,8 @@ export function RaceCanvas({ race, quality }: { race: RaceState; quality: "high"
             <CarModel carId={c.id} model={c.spec.model} shadows={shadows} />
           </Suspense>
         ))}
-        {quality === "high" && <Effects bloomThreshold={race.track.def.environment === "snow" ? 1.5 : 0.95} />}
-        <Stepper dust={dust} sun={sun} wrapper={wrapper} />
+        {quality === "high" && !IS_TOUCH && <Effects bloomThreshold={race.track.def.environment === "snow" ? 1.5 : 0.95} />}
+        <Stepper dust={dust} skid={skid} sun={sun} wrapper={wrapper} />
       </Canvas>
     </div>
   );

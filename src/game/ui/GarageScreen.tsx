@@ -1,13 +1,14 @@
 // Garage: pick, buy and preview cars on a turntable.
 import { ContactShadows, Environment, Lightformer, OrbitControls, useGLTF } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { Check, Lock } from "lucide-react";
+import { Check, Coins, Lock, Wrench } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { upgradeCarMaterials } from "../scene/carPaint";
 import { Effects } from "../scene/Effects";
 import { CAR_MODEL_URL } from "../scene/models";
 import { CARS, carById, carStats, type CarSpec } from "../sim/cars";
+import { MAX_UPGRADE_LEVEL, UPGRADE_INFO, UPGRADE_KINDS, levelsOf, upgradeCost, upgradedSpec } from "../sim/upgrades";
 import { useGame } from "../store";
 import { CoinBadge, RallyButton, ScreenShell, StatBar } from "./common";
 
@@ -49,8 +50,11 @@ export default function GarageScreen() {
   const selectCar = useGame((s) => s.selectCar);
   const [viewId, setViewId] = useState(profile.selectedCar);
   const car = carById(viewId);
-  const stats = carStats(car);
   const owned = profile.ownedCars.includes(car.id);
+  const levels = levelsOf(profile.upgrades?.[car.id]);
+  const tuned = upgradedSpec(car, owned ? levels : undefined);
+  const stats = carStats(tuned);
+  const buyUpgrade = useGame((s) => s.buyUpgrade);
   const selected = profile.selectedCar === car.id;
 
   return (
@@ -96,8 +100,44 @@ export default function GarageScreen() {
             <StatBar label="Weight" value={stats.weight} />
           </div>
           <div className="text-sm text-muted-foreground">
-            Top speed <span className="font-bold text-foreground tabular">{Math.round(car.topSpeed * 3.6)} km/h</span>
+            Top speed <span className="font-bold text-foreground tabular">{Math.round(tuned.topSpeed * 3.6)} km/h</span>
           </div>
+          {owned && (
+            <div className="border-t border-border pt-4">
+              <div className="mb-1 flex items-center gap-2 font-display text-lg font-black uppercase italic"><Wrench className="h-4 w-4 text-primary" /> Upgrades</div>
+              <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground"><Coins className="h-3.5 w-3.5 text-gold" /> Paid with coins you win in races. No real money.</p>
+              <div className="space-y-2">
+                {UPGRADE_KINDS.map((k) => {
+                  const lvl = levels[k];
+                  const maxed = lvl >= MAX_UPGRADE_LEVEL;
+                  const price = upgradeCost(car, lvl + 1);
+                  return (
+                    <div key={k} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-display text-sm font-bold uppercase tracking-wider">{UPGRADE_INFO[k].name}</span>
+                          <span className="flex gap-0.5" aria-label={`Level ${lvl} of ${MAX_UPGRADE_LEVEL}`}>
+                            {Array.from({ length: MAX_UPGRADE_LEVEL }, (_, i) => (
+                              <span key={i} className={cn("h-2 w-4", i < lvl ? "bg-primary" : "bg-muted")} />
+                            ))}
+                          </span>
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">{UPGRADE_INFO[k].effect}</div>
+                      </div>
+                      <button
+                        disabled={maxed || profile.coins < price}
+                        onClick={() => buyUpgrade(car.id, k)}
+                        aria-label={maxed ? `${UPGRADE_INFO[k].name} maxed` : `Upgrade ${UPGRADE_INFO[k].name} for ${price} coins`}
+                        className="shrink-0 border border-border bg-glass px-3 py-1.5 font-display text-sm font-bold uppercase tabular transition-colors hover:border-primary hover:text-primary disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
+                      >
+                        {maxed ? "Max" : <span className="inline-flex items-center gap-1 text-gold"><Coins className="h-3.5 w-3.5" />{price.toLocaleString("en-US")}</span>}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="mt-auto">
             {owned ? (
               <RallyButton className="w-full" disabled={selected} onClick={() => selectCar(car.id)}>

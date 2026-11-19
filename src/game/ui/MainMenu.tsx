@@ -1,10 +1,11 @@
-import { Flag, Settings, Trophy, Warehouse } from "lucide-react";
+import { Flag, Globe, Settings, Trophy, Warehouse } from "lucide-react";
 import { carById } from "../sim/cars";
 import { useGame } from "../store";
 import { CoinBadge } from "./common";
 
 const ITEMS = [
   { id: "play", label: "Play", sub: "Quick race", icon: Flag },
+  { id: "online", label: "Online", sub: "Race your friends", icon: Globe },
   { id: "career", label: "Career", sub: "Championship ladder", icon: Trophy },
   { id: "garage", label: "Garage", sub: "Cars & upgrades", icon: Warehouse },
   { id: "settings", label: "Settings", sub: "Camera, controls, graphics", icon: Settings },
@@ -57,7 +58,7 @@ export function MainMenu() {
         <div>
           <span className="font-display font-bold uppercase tracking-widest text-foreground">{car.name}</span> · {profile.racesRun} races · {profile.wins} wins
         </div>
-        <div className="hidden sm:block">W A S D / arrows · Space handbrake · C camera · Esc pause</div>
+        <div className="hidden sm:block">W A S D / arrows · Space handbrake · C camera · Esc pause · Controller supported</div>
       </div>
     </div>
   );

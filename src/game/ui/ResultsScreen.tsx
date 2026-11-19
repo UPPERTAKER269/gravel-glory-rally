@@ -1,4 +1,4 @@
-import { Home, RotateCcw, Trophy, Unlock } from "lucide-react";
+import { Home, RotateCcw, Trophy, Unlock, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CAREER } from "../sim/progression";
 import { trackById } from "../sim/tracks";
@@ -16,13 +16,14 @@ export function ResultsScreen() {
   const track = trackById(result.config.trackId);
   const event = CAREER.find((e) => e.id === result.config.careerEventId);
   const pos = me?.position ?? result.rows.length;
+  const online = !!result.config.online;
 
   return (
     <div className="relative z-10 flex h-full flex-col overflow-y-auto px-4 py-[max(env(safe-area-inset-top),1rem)] sm:px-8">
       <div className="mx-auto grid w-full max-w-5xl flex-1 items-center gap-6 lg:grid-cols-[1fr_1.3fr]">
         <div className="animate-rally-in">
           <div className="font-display text-xs font-bold uppercase tracking-[0.3em] text-primary">
-            {event ? `Career · ${event.name}` : "Quick race"} · {track.name}
+            {online ? `Online · Room ${result.config.online!.roomCode}` : event ? `Career · ${event.name}` : "Quick race"} · {track.name}
           </div>
           <div className={cn("font-display text-8xl font-black uppercase italic leading-none sm:text-9xl", PLACE_COLOR[pos - 1] ?? "text-foreground")}>
             {ordinal(pos)}
@@ -54,8 +55,12 @@ export function ResultsScreen() {
             )}
           </div>
           <div className="mt-5 flex flex-wrap gap-3">
-            <RallyButton onClick={restart}><RotateCcw className="h-5 w-5" /> Race again</RallyButton>
-            {event ? (
+            {online ? (
+              <RallyButton onClick={() => setScreen("online")}><Users className="h-5 w-5" /> Back to lobby</RallyButton>
+            ) : (
+              <RallyButton onClick={restart}><RotateCcw className="h-5 w-5" /> Race again</RallyButton>
+            )}
+            {online ? null : event ? (
               <RallyButton variant="outline" onClick={() => setScreen("career")}>Career</RallyButton>
             ) : (
               <RallyButton variant="outline" onClick={() => setScreen("play")}>New race</RallyButton>

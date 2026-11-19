@@ -29,6 +29,9 @@ export function SettingsScreen() {
         <Row label="Graphics" hint="Low turns off shadows and lowers resolution for older phones.">
           <Segmented value={settings.quality} onChange={(quality) => update({ quality })} options={[{ value: "high", label: "High" }, { value: "low", label: "Low" }]} />
         </Row>
+        <Row label="Sound" hint="Engine, gravel and tyre sounds during races.">
+          <Segmented value={settings.sound ? "on" : "off"} onChange={(v) => update({ sound: v === "on" })} options={[{ value: "on", label: "On" }, { value: "off", label: "Off" }]} />
+        </Row>
         <Row label="Speed units" hint="Speedometer display.">
           <Segmented value={settings.units} onChange={(units) => update({ units })} options={[{ value: "kmh", label: "km/h" }, { value: "mph", label: "mph" }]} />
         </Row>
@@ -52,7 +55,8 @@ export function SettingsScreen() {
       <div className="mt-6 max-w-3xl text-sm text-muted-foreground">
         <div className="font-display font-bold uppercase tracking-widest text-foreground">Controls</div>
         Keyboard: W/↑ throttle · S/↓ brake & reverse · A D/← → steer · Space handbrake · C camera · Esc pause.
-        <br />Controller: left stick steer · RT throttle · LT brake · B handbrake.
+        <br />Controller: left stick steer · RT throttle · LT brake & reverse · B or RB handbrake · Start pause.
+        <br />Controller in menus: D-pad or left stick to move · A to select · B to go back.
       </div>
     </ScreenShell>
   );

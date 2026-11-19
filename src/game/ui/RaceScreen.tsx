@@ -1,8 +1,10 @@
 // Race screen: owns the RaceState for one race, wires keyboard/touch into runtime,
 // and draws the HUD on top of the 3D canvas. HUD refreshes ~15x/s from runtime, not per frame.
-import { ArrowBigLeft, ArrowBigRight, Camera, Pause, Play, RotateCcw, Home } from "lucide-react";
-import { useEffect, useMemo, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { Camera, ChevronLeft, ChevronRight, CircleParking, Home, LogOut, Pause, Play, RotateCcw } from "lucide-react";
+import { Component, useEffect, useMemo, useState, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { EngineAudio, type Surface } from "../audio/engineAudio";
+import { allConnectedFinished } from "../net/session";
 import { runtime, type TouchState } from "../runtime";
 import { RaceCanvas } from "../scene/RaceCanvas";
 import { aiInput } from "../sim/ai";
@@ -39,11 +41,57 @@ export default function RaceScreen() {
   const quality = useGame((s) => s.settings.quality);
   const race = useMemo(() => (config ? createRace(config) : null), [config]);
 
+  const [lost, setLost] = useState(false);
   if (!race) return null;
-  return <RaceView race={race} quality={quality} />;
+  if (lost) return <RaceRecovery reason="lost" />;
+  return (
+    <RaceErrorBoundary>
+      <RaceView race={race} quality={quality} onContextLost={() => setLost(true)} />
+    </RaceErrorBoundary>
+  );
 }
 
-function RaceView({ race, quality }: { race: RaceState; quality: "high" | "low" }) {
+/** If the 3D view crashes or the GPU drops it, show a way back instead of a blank screen. */
+class RaceErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override componentDidCatch(err: unknown) {
+    console.error("[race] crashed:", err);
+  }
+  override render() {
+    return this.state.failed ? <RaceRecovery reason="error" /> : this.props.children;
+  }
+}
+
+function RaceRecovery({ reason }: { reason: "error" | "lost" }) {
+  const restart = useGame((s) => s.restartRace);
+  const update = useGame((s) => s.updateSettings);
+  const setScreen = useGame((s) => s.setScreen);
+  const low = useGame((s) => s.settings.quality === "low");
+  return (
+    <div data-nav-scope className="absolute inset-0 z-40 flex items-center justify-center bg-background p-6">
+      <div className="w-full max-w-md space-y-4 border border-border bg-card p-6 text-center shadow-panel">
+        <div className="stripes mx-auto h-1.5 w-24" />
+        <h2 className="text-3xl font-black uppercase italic">Stage didn't load</h2>
+        <p className="text-muted-foreground">
+          {reason === "lost" ? "Your device's graphics stopped drawing the race." : "Something went wrong drawing the race."}
+          {!low && " Low graphics usually fixes it."}
+        </p>
+        <div className="flex flex-col gap-2">
+          {!low && (
+            <RallyButton autoFocus onClick={() => { update({ quality: "low" }); restart(); }}>Retry on low graphics</RallyButton>
+          )}
+          <RallyButton variant={low ? "primary" : "outline"} onClick={restart}><RotateCcw className="h-5 w-5" /> Try again</RallyButton>
+          <RallyButton variant="ghost" onClick={() => setScreen("menu")}><Home className="h-5 w-5" /> Menu</RallyButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RaceView({ race, quality, onContextLost }: { race: RaceState; quality: "high" | "low"; onContextLost: () => void }) {
   const camera = useGame((s) => s.settings.camera);
   const updateSettings = useGame((s) => s.updateSettings);
   const paused = useGame((s) => s.paused);
@@ -72,6 +120,24 @@ function RaceView({ race, quality }: { race: RaceState; quality: "high" | "low" 
       Object.assign(runtime.touch, { left: false, right: false, gas: false, brake: false, handbrake: false });
     };
   }, [race]);
+
+  // Engine + tyre audio for the player's car.
+  const sound = useGame((s) => s.settings.sound);
+  useEffect(() => {
+    if (!sound) return;
+    const surface: Surface = race.track.def.environment === "snow" ? "snow" : race.track.def.environment === "canyon" ? "dirt" : "gravel";
+    let audio: EngineAudio | null = null;
+    try {
+      audio = new EngineAudio(surface);
+      runtime.audio = audio;
+    } catch {
+      /* no Web Audio: play silently */
+    }
+    return () => {
+      if (runtime.audio === audio) runtime.audio = null;
+      audio?.dispose();
+    };
+  }, [race, sound]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -110,17 +176,17 @@ function RaceView({ race, quality }: { race: RaceState; quality: "high" | "low" 
 
   return (
     <>
-      <RaceCanvas race={race} quality={quality} />
-      <Hud race={race} onCamera={toggleCamera} onPause={() => setPaused(true)} />
-      {touchOn && !paused && <TouchControls />}
-      {paused && <PauseMenu onCamera={toggleCamera} camera={camera} />}
+      <RaceCanvas race={race} quality={quality} onContextLost={onContextLost} />
+      <Hud race={race} touch={touchOn} onCamera={toggleCamera} onPause={() => setPaused(true)} />
+      {touchOn && (!paused || !!race.config.online) && <TouchControls />}
+      {paused && <PauseMenu onCamera={toggleCamera} camera={camera} online={!!race.config.online} />}
     </>
   );
 }
 
 /* ---------------- HUD ---------------- */
 
-function Hud({ race, onCamera, onPause }: { race: RaceState; onCamera: () => void; onPause: () => void }) {
+function Hud({ race, touch, onCamera, onPause }: { race: RaceState; touch: boolean; onCamera: () => void; onPause: () => void }) {
   useTick(HUD_MS);
   const units = useGame((s) => s.settings.units);
   const p = race.player;
@@ -170,12 +236,12 @@ function Hud({ race, onCamera, onPause }: { race: RaceState; onCamera: () => voi
       </div>
 
       {/* Bottom centre: speedometer */}
-      <div className="absolute bottom-[max(env(safe-area-inset-bottom),0.75rem)] left-1/2 -translate-x-1/2">
-        <Speedo speed={speed} max={units === "kmh" ? 200 : 125} unit={units === "kmh" ? "km/h" : "mph"} reverse={p.speed < -0.5} />
+      <div className={cn("absolute left-1/2 -translate-x-1/2", touch ? "bottom-1 origin-bottom scale-[0.8]" : "bottom-[max(env(safe-area-inset-bottom),0.75rem)]")}>
+        <Speedo speed={speed} max={units === "kmh" ? 200 : 125} unit={units === "kmh" ? "km/h" : "mph"} reverse={p.speed < -0.5} gear={p.gear} rpm={p.rpm} />
       </div>
 
       <Countdown race={race} />
-      {race.phase === "finished" && <FinishBanner pos={playerPosition(race)} />}
+      {race.phase === "finished" && <FinishBanner pos={playerPosition(race)} waiting={!!race.config.online && !allConnectedFinished(race)} />}
       {!p.onRoad && race.phase === "racing" && Math.abs(p.lat) > race.track.halfWidth + 6 && (
         <div className="absolute left-1/2 top-[30%] -translate-x-1/2 bg-accent px-4 py-1 font-display text-lg font-bold uppercase tracking-widest text-accent-foreground">
           Back to the road
@@ -193,8 +259,10 @@ function HudButton({ label, onClick, children }: { label: string; onClick: () =>
   );
 }
 
-function Speedo({ speed, max, unit, reverse }: { speed: number; max: number; unit: string; reverse: boolean }) {
+function Speedo({ speed, max, unit, reverse, gear, rpm }: { speed: number; max: number; unit: string; reverse: boolean; gear: number; rpm: number }) {
   const frac = Math.min(1, speed / max);
+  const rpmFrac = Math.min(1, Math.max(0, rpm / 7400));
+  const R2 = 41;
   const R = 52;
   const start = Math.PI * 0.8;
   const sweep = Math.PI * 1.4;
@@ -204,13 +272,24 @@ function Speedo({ speed, max, unit, reverse }: { speed: number; max: number; uni
     const x1 = 60 + R * Math.cos(a1), y1 = 60 + R * Math.sin(a1);
     return `M ${x0} ${y0} A ${R} ${R} 0 ${sweep * f > Math.PI ? 1 : 0} 1 ${x1} ${y1}`;
   };
+  const arcR = (r: number, f: number) => {
+    const ff = Math.max(0.001, f);
+    const a0 = start, a1 = start + sweep * ff;
+    return `M ${60 + r * Math.cos(a0)} ${60 + r * Math.sin(a0)} A ${r} ${r} 0 ${sweep * ff > Math.PI ? 1 : 0} 1 ${60 + r * Math.cos(a1)} ${60 + r * Math.sin(a1)}`;
+  };
   return (
     <div className="relative h-28 w-36 sm:h-32 sm:w-40">
       <div className="absolute left-1/2 top-[8%] aspect-square h-[84%] -translate-x-1/2 rounded-full bg-scrim backdrop-blur-sm" />
       <svg viewBox="0 0 120 105" className="absolute inset-0 h-full w-full drop-shadow-lg">
         <path d={arc(1)} fill="none" className="stroke-scrim-strong" strokeWidth={10} />
         {frac > 0.005 && <path d={arc(frac)} fill="none" className={frac > 0.85 ? "stroke-accent" : "stroke-primary"} strokeWidth={10} />}
+        {/* Rev counter: thin inner ring */}
+        <path d={arcR(R2, 1)} fill="none" className="stroke-scrim-strong" strokeWidth={3} />
+        <path d={arcR(R2, rpmFrac)} fill="none" className={rpmFrac > 0.88 ? "stroke-accent" : "stroke-foreground/70"} strokeWidth={3} />
       </svg>
+      <div className="absolute inset-x-0 bottom-[2%] text-center font-display text-sm font-black italic text-primary tabular" aria-label="Gear">
+        {reverse ? "R" : speed < 1 ? "N" : gear}
+      </div>
       <div className="absolute inset-x-0 top-[34%] text-center">
         <div className="font-display text-4xl font-black italic leading-none tabular sm:text-5xl">{Math.round(speed)}</div>
         <div className="font-display text-xs font-bold uppercase tracking-[0.25em] text-muted-foreground">{reverse ? "Reverse" : unit}</div>
@@ -268,7 +347,7 @@ function Countdown({ race }: { race: RaceState }) {
   );
 }
 
-function FinishBanner({ pos }: { pos: number }) {
+function FinishBanner({ pos, waiting }: { pos: number; waiting: boolean }) {
   return (
     <div className="absolute inset-x-0 top-[24%] flex justify-center">
       <div className="animate-rally-in skew-rally bg-scrim-strong px-10 py-4 text-center shadow-panel">
@@ -276,6 +355,7 @@ function FinishBanner({ pos }: { pos: number }) {
           <div className="stripes mx-auto mb-2 h-1.5 w-32" />
           <div className="font-display text-sm font-bold uppercase tracking-[0.4em] text-muted-foreground">Finished</div>
           <div className="font-display text-6xl font-black uppercase italic text-primary">{ordinal(pos)}</div>
+          {waiting && <div className="mt-1 font-display text-sm font-bold uppercase tracking-widest text-muted-foreground">Waiting for friends…</div>}
         </div>
       </div>
     </div>
@@ -286,23 +366,32 @@ function FinishBanner({ pos }: { pos: number }) {
 
 function TouchPad({ k, className, children, label }: { k: keyof TouchState; className?: string; children: ReactNode; label: string }) {
   const [on, setOn] = useState(false);
-  const set = (v: boolean) => (e: RPointerEvent) => {
+  const press = (e: RPointerEvent) => {
     e.preventDefault();
-    if (v) (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    runtime.touch[k] = v;
-    setOn(v);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    runtime.touch[k] = true;
+    setOn(true);
+    navigator.vibrate?.(8);
+  };
+  const release = (e: RPointerEvent) => {
+    e.preventDefault();
+    runtime.touch[k] = false;
+    setOn(false);
   };
   return (
     <button
       aria-label={label}
-      onPointerDown={set(true)}
-      onPointerUp={set(false)}
-      onPointerCancel={set(false)}
-      onLostPointerCapture={set(false)}
+      aria-pressed={on}
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
       onContextMenu={(e) => e.preventDefault()}
       className={cn(
-        "pointer-events-auto flex touch-none select-none items-center justify-center border-2 font-display font-black uppercase tracking-wider backdrop-blur-sm transition-colors",
-        on ? "border-primary bg-primary/70 text-primary-foreground" : "border-border bg-scrim text-foreground",
+        "pointer-events-auto flex touch-none select-none items-center justify-center border-2 backdrop-blur-md transition-[transform,background-color,border-color,box-shadow] duration-100 ease-out [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none]",
+        on
+          ? "scale-[0.93] border-primary bg-primary/45 text-primary-foreground shadow-glow"
+          : "border-foreground/25 bg-scrim/40 text-foreground/90",
         className,
       )}
     >
@@ -311,19 +400,39 @@ function TouchPad({ k, className, children, label }: { k: keyof TouchState; clas
   );
 }
 
-function TouchControls() {
+/** Pedal icon: a ribbed pedal pad on its hinge arm. */
+function PedalIcon({ variant }: { variant: "gas" | "brake" }) {
+  const tall = variant === "gas";
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 px-[max(env(safe-area-inset-left),0.75rem)] pb-[max(env(safe-area-inset-bottom),0.75rem)]">
-      <div className="flex gap-3">
-        <TouchPad k="left" label="Steer left" className="h-20 w-20 rounded-full sm:h-24 sm:w-24"><ArrowBigLeft className="h-10 w-10" /></TouchPad>
-        <TouchPad k="right" label="Steer right" className="h-20 w-20 rounded-full sm:h-24 sm:w-24"><ArrowBigRight className="h-10 w-10" /></TouchPad>
+    <svg viewBox="0 0 40 64" className={cn("drop-shadow", tall ? "h-[62%] w-auto" : "h-[58%] w-auto")} aria-hidden="true">
+      <rect x={tall ? 7 : 3} y="4" width={tall ? 26 : 34} height={tall ? 46 : 38} rx="6" className="fill-current opacity-90" />
+      {(tall ? [12, 19, 26, 33, 40] : [11, 18, 25, 32]).map((y) => (
+        <rect key={y} x={tall ? 11 : 7} y={y} width={tall ? 18 : 26} height="2.6" rx="1.3" className="fill-background opacity-55" />
+      ))}
+      <rect x="18" y={tall ? 50 : 42} width="4" height={tall ? 12 : 20} rx="2" className="fill-current opacity-60" />
+    </svg>
+  );
+}
+
+function TouchControls() {
+  // Sizes follow screen height so the pads fit any landscape phone without overlapping the HUD.
+  const steer = "h-[clamp(84px,27vh,136px)] w-[clamp(84px,27vh,136px)] rounded-full";
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-between pb-[max(env(safe-area-inset-bottom),0.9rem)] pl-[max(env(safe-area-inset-left),1rem)] pr-[max(env(safe-area-inset-right),1rem)]">
+      <div className="flex items-end gap-[clamp(10px,3vh,22px)]">
+        <TouchPad k="left" label="Steer left" className={steer}><ChevronLeft className="h-1/2 w-1/2" strokeWidth={2.6} /></TouchPad>
+        <TouchPad k="right" label="Steer right" className={steer}><ChevronRight className="h-1/2 w-1/2" strokeWidth={2.6} /></TouchPad>
       </div>
-      <div className="flex items-end gap-3 pr-[max(env(safe-area-inset-right),0px)]">
-        <div className="flex flex-col gap-3">
-          <TouchPad k="handbrake" label="Handbrake" className="h-12 w-20 text-xs">Hand</TouchPad>
-          <TouchPad k="brake" label="Brake" className="h-20 w-20 text-sm">Brake</TouchPad>
-        </div>
-        <TouchPad k="gas" label="Accelerate" className="h-32 w-20 text-sm sm:h-36 sm:w-24">Gas</TouchPad>
+      <div className="flex items-end gap-[clamp(10px,3vh,20px)]">
+        <TouchPad k="handbrake" label="Handbrake" className="mb-[clamp(40px,14vh,70px)] h-[clamp(50px,15vh,68px)] w-[clamp(50px,15vh,68px)] rounded-full">
+          <CircleParking className="h-1/2 w-1/2" />
+        </TouchPad>
+        <TouchPad k="brake" label="Brake and reverse" className="h-[clamp(96px,32vh,150px)] w-[clamp(76px,22vh,104px)] rounded-2xl">
+          <PedalIcon variant="brake" />
+        </TouchPad>
+        <TouchPad k="gas" label="Accelerate" className="h-[clamp(124px,44vh,200px)] w-[clamp(70px,19vh,92px)] rounded-2xl">
+          <PedalIcon variant="gas" />
+        </TouchPad>
       </div>
     </div>
   );
@@ -331,20 +440,27 @@ function TouchControls() {
 
 /* ---------------- Pause ---------------- */
 
-function PauseMenu({ onCamera, camera }: { onCamera: () => void; camera: string }) {
+function PauseMenu({ onCamera, camera, online }: { onCamera: () => void; camera: string; online: boolean }) {
   const setPaused = useGame((s) => s.setPaused);
   const restart = useGame((s) => s.restartRace);
   const setScreen = useGame((s) => s.setScreen);
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-scrim backdrop-blur-sm">
+    <div data-nav-scope className="absolute inset-0 z-30 flex items-center justify-center bg-scrim backdrop-blur-sm">
       <div className="animate-rally-in w-72 space-y-3 border border-border bg-card p-6 shadow-panel">
         <div className="stripes h-1.5 w-24" />
-        <h2 className="text-4xl font-black uppercase italic">Paused</h2>
-        <RallyButton className="w-full" onClick={() => setPaused(false)} autoFocus><Play className="h-5 w-5" /> Resume</RallyButton>
+        <h2 className="text-4xl font-black uppercase italic">{online ? "Menu" : "Paused"}</h2>
+        {online && <p className="text-sm text-muted-foreground">Online race: your car keeps rolling while this is open.</p>}
+        <RallyButton className="w-full" onClick={() => setPaused(false)} autoFocus><Play className="h-5 w-5" /> {online ? "Back to race" : "Resume"}</RallyButton>
         <RallyButton variant="outline" className="w-full" onClick={onCamera}><Camera className="h-5 w-5" /> {camera === "chase" ? "Chase cam" : "Cockpit cam"}</RallyButton>
-        <RallyButton variant="outline" className="w-full" onClick={restart}><RotateCcw className="h-5 w-5" /> Restart</RallyButton>
-        <RallyButton variant="ghost" className="w-full" onClick={() => setScreen("menu")}><Home className="h-5 w-5" /> Quit to menu</RallyButton>
-        <p className="pt-1 text-xs text-muted-foreground">W/S or arrows: gas & brake · A/D: steer · Space: handbrake · C: camera</p>
+        {online ? (
+          <RallyButton variant="ghost" className="w-full" onClick={() => setScreen("online")}><LogOut className="h-5 w-5" /> Leave race</RallyButton>
+        ) : (
+          <>
+            <RallyButton variant="outline" className="w-full" onClick={restart}><RotateCcw className="h-5 w-5" /> Restart</RallyButton>
+            <RallyButton variant="ghost" className="w-full" onClick={() => setScreen("menu")}><Home className="h-5 w-5" /> Quit to menu</RallyButton>
+          </>
+        )}
+        <p className="pt-1 text-xs text-muted-foreground">W/S or arrows: gas & brake · A/D: steer · Space: handbrake · C: camera · Controller: RT gas, LT brake, stick steer, B/RB handbrake, Start pause</p>
       </div>
     </div>
   );

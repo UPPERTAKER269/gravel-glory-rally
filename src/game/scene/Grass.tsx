@@ -44,7 +44,7 @@ function tuftGeometry(baseHex: string, tipHex: string) {
 export function Grass({ track, quality }: { track: Track; quality: "high" | "low" }) {
   const env = track.def.environment;
   const look = LOOK[env];
-  const count = Math.round((quality === "high" ? 5200 : 1800) * look.density);
+  const count = Math.round((quality === "high" ? (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0 ? 3200 : 5200) : 1800) * look.density);
 
   const mesh = useMemo(() => {
     const geo = tuftGeometry(look.base, look.tip);
