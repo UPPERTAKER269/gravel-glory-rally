@@ -4,25 +4,25 @@ import { Canvas } from "@react-three/fiber";
 import { Check, Coins, Lock, Wrench } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { upgradeCarMaterials } from "../scene/carPaint";
+import { applyCarLook } from "../scene/carPaint";
 import { Effects } from "../scene/Effects";
-import { CAR_MODEL_URL } from "../scene/models";
+import { CAR_MODEL_URL, CAR_SCALE } from "../scene/models";
 import { CARS, carById, carStats, type CarSpec } from "../sim/cars";
 import { MAX_UPGRADE_LEVEL, UPGRADE_INFO, UPGRADE_KINDS, levelsOf, upgradeCost, upgradedSpec } from "../sim/upgrades";
 import { useGame } from "../store";
 import { CoinBadge, RallyButton, ScreenShell, StatBar } from "./common";
 
-function TurntableCar({ model }: { model: CarSpec["model"] }) {
-  const { scene } = useGLTF(CAR_MODEL_URL[model]);
+function TurntableCar({ car }: { car: CarSpec }) {
+  const { scene } = useGLTF(CAR_MODEL_URL[car.model]);
   const obj = useMemo(() => {
     const c = scene.clone(true);
-    upgradeCarMaterials(c);
+    applyCarLook(c, { paint: car.paint });
     return c;
-  }, [scene]);
-  return <primitive object={obj} scale={1.5} />;
+  }, [scene, car.paint]);
+  return <primitive object={obj} scale={CAR_SCALE} />;
 }
 
-function Turntable({ model }: { model: CarSpec["model"] }) {
+function Turntable({ car }: { car: CarSpec }) {
   return (
     <Canvas dpr={[1, 1.75]} camera={{ position: [4.5, 2.2, 5.5], fov: 35 }} gl={{ alpha: true }}>
       <hemisphereLight args={["#fff3dc", "#3a2c20", 0.9]} />
@@ -34,7 +34,7 @@ function Turntable({ model }: { model: CarSpec["model"] }) {
       </Environment>
       <Suspense fallback={null}>
         <group position={[0, -0.6, 0]}>
-          <TurntableCar key={model} model={model} />
+          <TurntableCar key={car.id} car={car} />
         </group>
       </Suspense>
       <ContactShadows position={[0, -0.6, 0]} opacity={0.7} scale={10} blur={2.4} far={3} />
@@ -62,7 +62,7 @@ export default function GarageScreen() {
       <div className="grid h-full gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div className="flex min-h-0 flex-col gap-4">
           <div className="relative h-56 min-h-0 border border-border bg-glass sm:h-72 lg:h-auto lg:flex-1">
-            <Turntable model={car.model} />
+            <Turntable car={car} />
             <div className="pointer-events-none absolute left-4 top-3">
               <div className="font-display text-xs font-bold uppercase tracking-[0.3em] text-primary">Class {car.className}</div>
               <div className="font-display text-3xl font-black uppercase italic leading-tight sm:text-4xl">{car.name}</div>

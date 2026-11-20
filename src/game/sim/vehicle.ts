@@ -19,6 +19,8 @@ export const SLIDE_DRAG = 0.35; // sliding sideways bleeds forward speed
 export const REVERSE_TOP = 10;
 export const REVERSE_ACCEL = 6;
 export const CAR_RADIUS = 1.5;
+/** Visual wheel radius (m) for wheel spin. */
+export const WHEEL_RADIUS = 0.3;
 // Gearbox: each gear tops out at this share of the car's top speed.
 export const GEAR_TOP = [0.3, 0.47, 0.62, 0.76, 0.89, 1.04];
 export const IDLE_RPM = 900;
@@ -266,7 +268,7 @@ export function stepVehicle(car: CarState, input: CarInput, track: Track, dt: nu
   car.bounce += car.bounceVel * dt;
   car.bounce = clamp(car.bounce, -0.12, 0.12);
 
-  car.wheelSpin += (vLong / 0.45) * dt;
+  car.wheelSpin += (vLong / WHEEL_RADIUS) * dt;
   car.impact *= Math.exp(-4 * dt);
 }
 

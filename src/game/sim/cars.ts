@@ -2,7 +2,9 @@
 export interface CarSpec {
   id: string;
   name: string;
-  model: "hatchback-sports" | "sedan-sports" | "suv" | "race" | "race-future";
+  model: "vento" | "strada" | "ridge" | "falco" | "apex";
+  /** Factory paint colour (hex). */
+  paint: string;
   className: string;
   description: string;
   /** Top speed (m/s). */
@@ -22,27 +24,27 @@ export interface CarSpec {
 
 export const CARS: CarSpec[] = [
   {
-    id: "hatch", name: "Vento R2", model: "hatchback-sports", className: "R2",
+    id: "hatch", name: "Vento R2", model: "vento", paint: "#c8322a", className: "R2",
     description: "Light, nimble and forgiving. The perfect first rally car.",
     topSpeed: 40, accel: 9, brake: 20, grip: 1.0, turn: 1.05, mass: 1.0, price: 0,
   },
   {
-    id: "sedan", name: "Strada GT", model: "sedan-sports", className: "GT",
+    id: "sedan", name: "Strada GT", model: "strada", paint: "#1f4fa8", className: "GT",
     description: "Stable at speed with a rear wing that keeps it planted.",
     topSpeed: 44, accel: 9.8, brake: 21, grip: 1.05, turn: 1.0, mass: 1.1, price: 1500,
   },
   {
-    id: "suv", name: "Ridge 4x4", model: "suv", className: "T1",
+    id: "suv", name: "Ridge 4x4", model: "ridge", paint: "#e9e6dc", className: "T1",
     description: "Heavy all-terrain grip. Shrugs off snow and rough verges.",
     topSpeed: 41, accel: 9.4, brake: 20, grip: 1.22, turn: 0.95, mass: 1.45, price: 2500,
   },
   {
-    id: "proto", name: "Falco Proto", model: "race", className: "R5",
+    id: "proto", name: "Falco Proto", model: "falco", paint: "#f0a91c", className: "R5",
     description: "A purpose-built rally weapon with brutal acceleration.",
     topSpeed: 49, accel: 11.5, brake: 23, grip: 1.12, turn: 1.08, mass: 1.05, price: 5000,
   },
   {
-    id: "apex", name: "Apex X", model: "race-future", className: "Rally1",
+    id: "apex", name: "Apex X", model: "apex", paint: "#23272c", className: "Rally1",
     description: "Hybrid hypercar for rally. Fastest car in the paddock.",
     topSpeed: 54, accel: 12.8, brake: 25, grip: 1.18, turn: 1.1, mass: 1.0, price: 9000,
   },

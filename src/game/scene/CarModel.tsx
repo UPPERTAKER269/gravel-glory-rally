@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { CarSpec } from "../sim/cars";
-import { upgradeCarMaterials } from "./carPaint";
+import { applyCarLook, type CarLights } from "./carPaint";
 import { CAR_MODEL_URL, CAR_SCALE } from "./models";
 
 export interface CarNodes {
@@ -12,17 +12,18 @@ export interface CarNodes {
   body: THREE.Object3D | null;
   bodyY: number;
   wheels: { obj: THREE.Object3D; front: boolean }[];
+  lights: CarLights;
 }
 
 export const carNodes = new Map<number, CarNodes>();
 
-export function CarModel({ carId, model, shadows }: { carId: number; model: CarSpec["model"]; shadows: boolean }) {
+export function CarModel({ carId, model, paint, mud, shadows }: { carId: number; model: CarSpec["model"]; paint: string; mud?: string; shadows: boolean }) {
   const { scene } = useGLTF(CAR_MODEL_URL[model]);
-  const cloned = useMemo(() => {
+  const { cloned, lights } = useMemo(() => {
     const c = skeletonClone(scene);
-    upgradeCarMaterials(c);
-    return c;
-  }, [scene]);
+    const l = applyCarLook(c, mud ? { paint, mud } : { paint });
+    return { cloned: c, lights: l };
+  }, [scene, paint, mud]);
   const root = useRef<THREE.Group>(null);
 
   useLayoutEffect(() => {
@@ -36,17 +37,17 @@ export function CarModel({ carId, model, shadows }: { carId: number; model: CarS
         mesh.receiveShadow = true;
       }
       if (o.name === "body") body = o;
-      if (o.name.startsWith("wheel-") && o.name !== "wheel-back") {
+      if (o.name.startsWith("wheel-")) {
         o.rotation.order = "YXZ";
         wheels.push({ obj: o, front: o.name.includes("front") });
       }
     });
     const b = body as THREE.Object3D | null;
-    carNodes.set(carId, { root: root.current, body: b, bodyY: b ? b.position.y : 0, wheels });
+    carNodes.set(carId, { root: root.current, body: b, bodyY: b ? b.position.y : 0, wheels, lights });
     return () => {
       carNodes.delete(carId);
     };
-  }, [cloned, carId, shadows]);
+  }, [cloned, carId, shadows, lights]);
 
   return (
     <group ref={root}>

@@ -1,5 +1,5 @@
 // Online race wire format and remote-car smoothing. Pure TS (no React/three/network).
-import type { CarState } from "../sim/vehicle";
+import { WHEEL_RADIUS, type CarState } from "../sim/vehicle";
 
 /** Position packet, sent ~8x per second per player. Numbers are rounded to keep it small. */
 export interface NetCarState {
@@ -70,7 +70,7 @@ export function applyRemote(car: CarState, s: NetCarState, dt: number) {
   car.vz = Math.cos(car.yaw) * car.speed;
   car.steer = s.steer;
   car.steerAngle = (s.steer * 0.6) / (1 + Math.abs(car.speed) * 0.19);
-  car.wheelSpin += (car.speed / 0.45) * dt;
+  car.wheelSpin += (car.speed / WHEEL_RADIUS) * dt;
   car.lastAccel += ((car.speed - prevSpeed) / Math.max(dt, 1e-3) - car.lastAccel) * k;
   car.lap = s.lap;
   car.progress = s.progress;

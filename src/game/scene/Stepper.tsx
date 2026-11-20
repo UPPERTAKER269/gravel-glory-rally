@@ -10,6 +10,7 @@ import { raceResults, stepRace, type RaceState } from "../sim/race";
 import { raceReward, CAREER } from "../sim/progression";
 import { trackById } from "../sim/tracks";
 import { useGame } from "../store";
+import { TAIL_BRAKE, TAIL_IDLE } from "./carPaint";
 import { carNodes } from "./CarModel";
 import type { DustSystem } from "./dust";
 import type { SkidMarks } from "./skidMarks";
@@ -47,6 +48,10 @@ function poseCars(race: RaceState) {
       w.obj.rotation.x = car.wheelSpin;
       w.obj.rotation.y = w.front ? -car.steerAngle * 1.6 : 0;
     }
+    // Brake lights glow while slowing hard or reversing.
+    const braking = (car.lastAccel < -3.5 && car.speed > 1) || car.speed < -0.5;
+    const tail = n.lights.tail;
+    tail.emissiveIntensity += ((braking ? TAIL_BRAKE : TAIL_IDLE) - tail.emissiveIntensity) * 0.35;
   }
 }
 

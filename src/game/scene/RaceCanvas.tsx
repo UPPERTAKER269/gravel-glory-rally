@@ -15,6 +15,13 @@ import { Scenery } from "./Scenery";
 import { SkidMarks } from "./skidMarks";
 
 const SKID_COLOR = { forest: "#241a12", canyon: "#4a2616", snow: "#6f7c88" } as const;
+// Liveries for a second car of the same model on the grid (e.g. friends picking the same car).
+const ALT_PAINT = ["#2f7d4a", "#e9e6dc", "#7a1f2b", "#3a8fd6", "#d9621c", "#5b5f66"];
+function paintFor(race: RaceState, i: number) {
+  const c = race.cars[i];
+  const dup = race.cars.slice(0, i).some((o) => o.spec.model === c.spec.model);
+  return dup ? ALT_PAINT[(c.id + i) % ALT_PAINT.length] : c.spec.paint;
+}
 import { Stepper } from "./Stepper";
 import { TrackMesh } from "./TrackMesh";
 
@@ -114,9 +121,9 @@ export function RaceCanvas({ race, quality, onContextLost }: { race: RaceState; 
         <Suspense fallback={null}>
           <Cones race={race} />
         </Suspense>
-        {race.cars.map((c) => (
+        {race.cars.map((c, i) => (
           <Suspense key={c.id} fallback={null}>
-            <CarModel carId={c.id} model={c.spec.model} shadows={shadows} />
+            <CarModel carId={c.id} model={c.spec.model} paint={paintFor(race, i)} mud={style.dust} shadows={shadows} />
           </Suspense>
         ))}
         {quality === "high" && !IS_TOUCH && <Effects bloomThreshold={race.track.def.environment === "snow" ? 1.5 : 0.95} />}
